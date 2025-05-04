@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESP32 BLE Fan Control</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: #101820;
+        }
+
+        ::selection {
+            background: #00ff88;
+            color: #101820;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-green-400 font-mono p-4">
+    <div class="w-full max-w-md bg-gray-800 rounded-xl shadow-lg p-6 flex flex-col gap-6">
+        <h1 class="text-2xl font-bold text-green-400 text-center mb-2">ESP32 BLE Fan Control</h1>
+        <button id="connectButton"
+            class="w-full py-2 rounded bg-green-600 hover:bg-green-500 text-gray-900 font-bold transition">Connect to
+            ESP32</button>
+        <div class="flex flex-col gap-4">
+            <div class="flex items-center justify-between">
+                <span class="text-green-300">Fan Power</span>
+                <button id="toggleButton"
+                    class="px-4 py-2 rounded bg-gray-700 border-2 border-green-500 text-green-400 font-bold focus:outline-none disabled:opacity-50 transition"
+                    disabled>OFF</button>
+            </div>
+            <div>
+                <label for="speedSlider" class="block text-green-300 mb-1">Fan Speed</label>
+                <input id="speedSlider" type="range" min="0" max="100" value="50" class="w-full accent-green-500"
+                    disabled>
+                <div class="flex justify-between text-xs text-green-500 mt-1">
+                    <span>0</span><span>100</span>
+                </div>
+                <div class="text-green-400 text-right text-sm mt-1" id="sliderValue">50</div>
+                <button id="sendSpeedButton"
+                    class="mt-2 w-full py-2 rounded bg-green-700 hover:bg-green-600 text-gray-900 font-bold transition"
+                    disabled>Set Speed</button>
+            </div>
+        </div>
+        <div>
+            <button id="subscribeButton"
+                class="w-full py-2 rounded bg-gray-700 border-2 border-green-500 text-green-400 font-bold focus:outline-none disabled:opacity-50 transition"
+                disabled>Subscribe to Notifications</button>
+            <div id="notifications" class="mt-2 text-green-300 text-sm min-h-[1.5em]"></div>
+        </div>
+        <button id="grantNotifButton"
+            class="w-full py-2 rounded bg-gray-700 border-2 border-green-500 text-green-400 font-bold focus:outline-none transition">Grant
+            Notification Permission</button>
+        <div id="status" class="mt-2 text-green-500 text-center italic">Disconnected</div>
+    </div>
+    <script>
+        const connectButton = document.getElementById('connectButton');
+        const toggleButton = document.getElementById('toggleButton');
+        const speedSlider = document.getElementById('speedSlider');
+        const sendSpeedButton = document.getElementById('sendSpeedButton');
+        const sliderValue = document.getElementById('sliderValue');
+        const statusDiv = document.getElementById('status');
+        const subscribeButton = document.getElementById('subscribeButton');
+        const notificationsDiv = document.getElementById('notifications');
+        const grantNotifButton = document.getElementById('grantNotifButton');
+
+        const SERVICE_UUID = "25081992-83f3-4a4c-8452-30964a5354ae";
+        const CHARACTERISTIC_UUID = "25081992-0c61-4d56-8c68-d2e290eaf042";
+        const NOTIFY_CHARACTERISTIC_UUID = CHARACTERISTIC_UUID;
+
+        let bleDevice;
+        let bleServer;
+        let bleService;
+        let bleCharacteristic;
+
+        connectButton.addEventListener('click', connectToDevice);
+        toggleButton.addEventListener('click', toggleFan);
+        speedSlider.addEventListener('input', () => {
+            sliderValue.textContent = speedSlider.value;
+        });
+        sendSpeedButton.addEventListener('click', sendSpeed);
+        subscribeButton.addEventListener('click', subscribeToNotifications);
+        grantNotifButton.addEventListener('click', async () => {
+            if (Notification.permission === 'granted') {
+                alert('Notification permission already granted.');
+                return;
+            }
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
+                alert('Notification permission granted!');
+            } else {
+                alert('Notification permission denied.');
+            }
+        });
+
+        async function connectToDevice() {
+            log('Attempting to connect...');
+            statusDiv.textContent = 'Connecting...';
+            connectButton.disabled = true;
+            toggleButton.disabled = true;
+            speedSlider.disabled = true;
+            sendSpeedButton.disabled = true;
+            subscribeButton.disabled = true;
+            try {
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: "miniFAN" }],
+                    optionalServices: [SERVICE_UUID]
+                });
+                bleDevice.removeEventListener('gattserverdisconnected', onDisconnected);
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                bleServer = await bleDevice.gatt.connect();
+                bleService = await bleServer.getPrimaryService(SERVICE_UUID);
+                bleCharacteristic = await bleService.getCharacteristic(CHARACTERISTIC_UUID);
+                statusDiv.textContent = `Connected to ${bleDevice.name || bleDevice.id}`;
+                toggleButton.disabled = false;
+                speedSlider.disabled = false;
+                sendSpeedButton.disabled = false;
+                subscribeButton.disabled = false;
+            } catch (error) {
+                log(`Error during connection: ${error}`);
+                statusDiv.textContent = `Error: ${error.message}`;
+                if (bleDevice && bleDevice.gatt && bleDevice.gatt.connected) {
+                    bleDevice.gatt.disconnect();
+                } else {
+                    onDisconnected();
+                }
+                bleDevice = null;
+                bleServer = null;
+                bleService = null;
+                bleCharacteristic = null;
+                connectButton.disabled = false;
+                toggleButton.disabled = true;
+                speedSlider.disabled = true;
+                sendSpeedButton.disabled = true;
+                subscribeButton.disabled = true;
+            }
+        }
+
+        async function toggleFan() {
+            if (!bleDevice || !bleDevice.gatt.connected || !bleCharacteristic) {
+                statusDiv.textContent = 'Error: Not connected.';
+                onDisconnected();
+                return;
+            }
+            const isOn = toggleButton.textContent === 'ON';
+            const newState = isOn ? 'OFF' : 'ON';
+            try {
+                const encoder = new TextEncoder();
+                await bleCharacteristic.writeValue(encoder.encode(newState));
+                toggleButton.textContent = newState;
+                toggleButton.classList.toggle('bg-green-600', newState === 'ON');
+                toggleButton.classList.toggle('bg-gray-700', newState === 'OFF');
+                statusDiv.textContent = `Fan turned ${newState}`;
+            } catch (error) {
+                statusDiv.textContent = `Error: ${error.message}`;
+                if (bleDevice && !bleDevice.gatt.connected) onDisconnected();
+            }
+        }
+
+        async function sendSpeed() {
+            if (!bleDevice || !bleDevice.gatt.connected || !bleCharacteristic) {
+                statusDiv.textContent = 'Error: Not connected.';
+                onDisconnected();
+                return;
+            }
+            const value = speedSlider.value;
+            try {
+                const encoder = new TextEncoder();
+                await bleCharacteristic.writeValue(encoder.encode(`SPEED:${value}`));
+                statusDiv.textContent = `Speed set to ${value}`;
+            } catch (error) {
+                statusDiv.textContent = `Error: ${error.message}`;
+                if (bleDevice && !bleDevice.gatt.connected) onDisconnected();
+            }
+        }
+
+        async function subscribeToNotifications() {
+            if (!bleDevice || !bleDevice.gatt.connected || !bleService) {
+                statusDiv.textContent = 'Error: Not connected.';
+                onDisconnected();
+                return;
+            }
+            try {
+                const characteristic = await bleService.getCharacteristic(NOTIFY_CHARACTERISTIC_UUID);
+                await characteristic.startNotifications();
+                characteristic.addEventListener('characteristicvaluechanged', (event) => {
+                    const value = event.target.value;
+                    const decoder = new TextDecoder();
+                    const strValue = decoder.decode(value.buffer);
+                    notificationsDiv.textContent = `Notification: "${strValue}"`;
+                    if (Notification.permission === 'granted') {
+                        new Notification('BLE Notification', { body: strValue });
+                    }
+                });
+                statusDiv.textContent = `Subscribed to notifications.`;
+            } catch (error) {
+                statusDiv.textContent = `Error subscribing: ${error.message}`;
+                if (bleDevice && !bleDevice.gatt.connected) onDisconnected();
+            }
+        }
+
+        function onDisconnected() {
+            statusDiv.textContent = 'Disconnected';
+            connectButton.disabled = false;
+            toggleButton.disabled = true;
+            speedSlider.disabled = true;
+            sendSpeedButton.disabled = true;
+            subscribeButton.disabled = true;
+            bleDevice = null;
+            bleServer = null;
+            bleService = null;
+            bleCharacteristic = null;
+        }
+
+        function log(message) {
+            console.log(message);
+        }
+    </script>
+</body>
+
+</html>
