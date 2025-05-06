@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Barcode Scanner</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center">
+    <div id="formContainer" class="bg-white shadow-lg rounded-lg p-8 w-full max-w-md transition-all duration-300">
+        <h1 class="text-2xl font-bold mb-2 text-center text-blue-700">Inventory Barcode Scanner</h1>
+        <h2 id="warehouseHeadline" class="text-lg font-semibold text-center text-gray-700 mb-6"></h2>
+        <div class="flex items-center justify-between mb-6">
+            <span class="text-gray-700 font-medium">Stock Mode:</span>
+            <div class="flex items-center space-x-4" id="modeRadioGroup">
+                <label class="flex items-center cursor-pointer">
+                    <input type="radio" name="stockMode" id="addMode" value="add" class="form-radio text-green-600"
+                        checked>
+                    <span class="ml-2 text-green-600 font-semibold">Add</span>
+                </label>
+                <label class="flex items-center cursor-pointer">
+                    <input type="radio" name="stockMode" id="subtractMode" value="subtract"
+                        class="form-radio text-red-600">
+                    <span class="ml-2 text-red-600 font-semibold">Subtract</span>
+                </label>
+            </div>
+        </div>
+        <div class="mb-4">
+            <label for="cameraSelect" class="block text-gray-700 text-sm font-medium mb-1">Select Camera:</label>
+            <select id="cameraSelect"
+                class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"></select>
+        </div>
+        <button id="scanBtn"
+            class="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition mb-4">Scan
+            Barcode</button>
+        <div id="videoContainer" class="hidden mb-4"></div>
+        <div class="text-xs text-gray-400 text-center">Barcodes will be logged to the console.</div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+    <script>
+        // --- Warehouse headline from query param ---
+        function getQueryParam(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+        const warehouse = getQueryParam('warehouse');
+        const warehouseHeadline = document.getElementById('warehouseHeadline');
+        if (warehouse) {
+            warehouseHeadline.textContent = `Warehouse: ${warehouse}`;
+            warehouseHeadline.classList.remove('hidden');
+        } else {
+            warehouseHeadline.classList.add('hidden');
+        }
+
+        // --- Stock mode radio logic ---
+        let stockMode = 'add';
+        const addMode = document.getElementById('addMode');
+        const subtractMode = document.getElementById('subtractMode');
+        addMode.addEventListener('change', () => { if (addMode.checked) stockMode = 'add'; });
+        subtractMode.addEventListener('change', () => { if (subtractMode.checked) stockMode = 'subtract'; });
+
+        const cameraSelect = document.getElementById('cameraSelect');
+        let availableDevices = [];
+
+        // Populate camera selector
+        async function updateCameraList() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                cameraSelect.innerHTML = '<option>No camera found</option>';
+                cameraSelect.disabled = true;
+                return;
+            }
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            availableDevices = devices.filter(device => device.kind === 'videoinput');
+            cameraSelect.innerHTML = '';
+            availableDevices.forEach((device, idx) => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.text = device.label || `Camera ${idx + 1}`;
+                cameraSelect.appendChild(option);
+            });
+            if (availableDevices.length === 0) {
+                cameraSelect.innerHTML = '<option>No camera found</option>';
+                cameraSelect.disabled = true;
+            } else {
+                cameraSelect.disabled = false;
+            }
+        }
+
+        // Call on load
+        updateCameraList();
+        // Also update when permissions change
+        navigator.mediaDevices && navigator.mediaDevices.addEventListener && navigator.mediaDevices.addEventListener('devicechange', updateCameraList);
+
+        // Barcode scanning logic using Quagga
+        const scanBtn = document.getElementById('scanBtn');
+        const videoContainer = document.getElementById('videoContainer');
+        let scanning = false;
+
+        function startQuagga() {
+            if (!window.Quagga) {
+                alert('Quagga library not loaded.');
+                return;
+            }
+            let selectedDeviceId = cameraSelect.value || null;
+            videoContainer.classList.remove('hidden');
+            scanBtn.textContent = 'Stop Scanning';
+            scanning = true;
+            Quagga.init({
+                inputStream: {
+                    type: 'LiveStream',
+                    target: videoContainer, // Use the container div, not a <video> element
+                    constraints: {
+                        deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+                        facingMode: 'environment',
+                    },
+                    area: {
+                        top: "0%",
+                        right: "0%",
+                        left: "0%",
+                        bottom: "0%"
+                    },
+                },
+                decoder: {
+                    readers: [
+                        'code_128_reader',
+                        'ean_8_reader',
+                    ]
+                },
+                locate: true
+            }, function (err) {
+                if (err) {
+                    alert('Error starting camera: ' + err);
+                    stopQuagga();
+                    return;
+                }
+                Quagga.start();
+            });
+
+            Quagga.onDetected(onBarcodeDetected);
+        }
+
+        function stopQuagga() {
+            if (window.Quagga) {
+                Quagga.offDetected(onBarcodeDetected);
+                Quagga.stop();
+            }
+            videoContainer.classList.add('hidden');
+            scanBtn.textContent = 'Scan Barcode';
+            scanning = false;
+        }
+
+        function onBarcodeDetected(result) {
+            if (result && result.codeResult && result.codeResult.code) {
+                console.log(`[${stockMode === 'subtract' ? 'Subtract' : 'Add'}] Barcode:`, result.codeResult.code, result.codeResult);
+                // Visual feedback: green border for 2 seconds
+                const form = document.getElementById('formContainer');
+                form.classList.add('border-4', 'border-green-500');
+                setTimeout(() => {
+                    form.classList.remove('border-4', 'border-green-500');
+                }, 2000);
+                // stopQuagga(); // Uncomment to stop after first scan
+            }
+        }
+
+        scanBtn.addEventListener('click', () => {
+            if (!scanning) {
+                startQuagga();
+            } else {
+                stopQuagga();
+            }
+        });
+    </script>
+</body>
+
+</html>
