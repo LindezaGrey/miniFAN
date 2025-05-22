@@ -6,39 +6,162 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Barcode Scanner</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        #videoContainer.scanning .scanning-line {
+            display: block;
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 3px;
+            /* Height of the scanning bar */
+            background-color: red;
+            animation: scan-animation 1.5s infinite ease-in-out alternate;
+        }
+
+        @keyframes scan-animation {
+            0% {
+                top: 0%;
+            }
+
+            100% {
+                top: calc(100% - 3px);
+                /* Adjust based on bar height */
+            }
+        }
+
+        .scanning-line {
+            /* Default hidden state */
+            display: none;
+        }
+
+        /* Ensure video container can properly position the absolute scanning line */
+        #videoContainer {
+            position: relative;
+            overflow: hidden;
+            /* Keeps the bar within the container */
+        }
+
+        /* Always 16:9 aspect ratio for video container */
+        #videoContainer {
+            aspect-ratio: 16/9;
+            max-width: 100%;
+            background: #000;
+        }
+
+        /* Video element should also maintain 16:9 aspect ratio */
+        #videoElement {
+            aspect-ratio: 16/9;
+        }
+
+        /* Modal styles */
+        #barcodeModal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            /* Above all other content */
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, 0.7);
+        }
+
+        #barcodeModal .modal-content {
+            background-color: #2d3748;
+            border-radius: 0.5rem;
+            padding: 2rem;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        #barcodeModal svg {
+            height: 4rem;
+            width: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        #barcodeModalQuestion {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #edf2f7;
+            margin-bottom: 1.5rem;
+            word-break: break-word;
+            text-align: center;
+            max-width: 90vw;
+        }
+
+        #closeBarcodeModal {
+            padding: 0.5rem 1rem;
+            background-color: #38a169;
+            color: white;
+            font-weight: 500;
+            border: none;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #closeBarcodeModal:hover {
+            background-color: #2f855a;
+        }
+
+        #headerLogo {
+            width: 200px;
+            height: auto;
+            margin: 0 auto;
+            margin-bottom: 32px;
+        }
+
+        .albin-blue {
+            color: #092644
+        }
+    </style>
 </head>
 
 <body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center">
     <div id="formContainer" class="bg-white shadow-lg rounded-lg p-8 w-full max-w-md transition-all duration-300">
-        <h1 class="text-2xl font-bold mb-2 text-center text-blue-700">Inventory Barcode Scanner</h1>
+        <img src="./assets/albin-logo.jpg" alt="Logo" id="headerLogo">
+        <h1 class="text-2xl font-bold mb-4 text-center albin-blue">Konsi-Lager App</h1>
         <h2 id="warehouseHeadline" class="text-lg font-semibold text-center text-gray-700 mb-6"></h2>
-        <div class="flex items-center justify-between mb-6">
-            <span class="text-gray-700 font-medium">Stock Mode:</span>
-            <div class="flex items-center space-x-4" id="modeRadioGroup">
-                <label class="flex items-center cursor-pointer">
-                    <input type="radio" name="stockMode" id="addMode" value="add" class="form-radio text-green-600"
-                        checked>
-                    <span class="ml-2 text-green-600 font-semibold">Add</span>
-                </label>
-                <label class="flex items-center cursor-pointer">
-                    <input type="radio" name="stockMode" id="subtractMode" value="subtract"
-                        class="form-radio text-red-600">
-                    <span class="ml-2 text-red-600 font-semibold">Subtract</span>
-                </label>
-            </div>
+        <div class="flex flex-col items-center justify-between mb-6">
+            <span class="block text-center w-full text-gray-700 font-bold text-lg mb-2">Modus</span>
+            <select id="modeSelect"
+                class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 text-center font-semibold">
+                <option value="subtract">Warenentnahme</option>
+                <option value="add">Wareneinlagerung</option>
+            </select>
         </div>
         <div class="mb-4">
-            <label for="cameraSelect" class="block text-gray-700 text-sm font-medium mb-1">Select Camera:</label>
+            <label for="cameraSelect" class="block text-gray-700 text-sm font-medium mb-1">Kamera auswählen:</label>
             <select id="cameraSelect"
-                class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"></select>
+                class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 mb-2"></select>
         </div>
         <button id="scanBtn"
-            class="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition mb-4">Scan
-            Barcode</button>
-        <div id="videoContainer" class="hidden mb-4"></div>
-        <div class="text-xs text-gray-400 text-center">Barcodes will be logged to the console.</div>
+            class="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition">Barcode
+            scannen</button>
+        <div id="videoContainer" class="hidden mb-4">
+            <video id="videoElement" class="w-full h-full object-contain" autoplay playsinline></video>
+            <div class="scanning-line"></div>
+            <!-- The scanning bar -->
+        </div>
+        <!-- Modal for barcode feedback -->
+        <div id="barcodeModal"
+            class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+            <div class="bg-green-500 rounded-lg shadow-lg flex flex-col items-center justify-center p-8">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24 text-white mb-4" fill="none"
+                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <div id="barcodeModalQuestion" class="text-white text-center font-semibold mb-4"></div>
+                <div class="flex gap-4">
+                    <button id="confirmBarcodeModal"
+                        class="px-6 py-2 bg-white text-green-700 font-semibold rounded shadow hover:bg-gray-100">Ja</button>
+                    <button id="closeBarcodeModal"
+                        class="px-6 py-2 bg-white text-gray-700 font-semibold rounded shadow hover:bg-gray-100">Abbrechen</button>
+                </div>
+            </div>
+        </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
     <script>
         // --- Warehouse headline from query param ---
         function getQueryParam(name) {
@@ -54,12 +177,12 @@
             warehouseHeadline.classList.add('hidden');
         }
 
-        // --- Stock mode radio logic ---
-        let stockMode = 'add';
-        const addMode = document.getElementById('addMode');
-        const subtractMode = document.getElementById('subtractMode');
-        addMode.addEventListener('change', () => { if (addMode.checked) stockMode = 'add'; });
-        subtractMode.addEventListener('change', () => { if (subtractMode.checked) stockMode = 'subtract'; });
+        // --- Stock mode dropdown logic ---
+        const modeSelect = document.getElementById('modeSelect');
+        let stockMode = modeSelect.value;
+        modeSelect.addEventListener('change', () => {
+            stockMode = modeSelect.value;
+        });
 
         const cameraSelect = document.getElementById('cameraSelect');
         let availableDevices = [];
@@ -74,17 +197,25 @@
             const devices = await navigator.mediaDevices.enumerateDevices();
             availableDevices = devices.filter(device => device.kind === 'videoinput');
             cameraSelect.innerHTML = '';
+            let backCamIdx = -1;
             availableDevices.forEach((device, idx) => {
                 const option = document.createElement('option');
                 option.value = device.deviceId;
                 option.text = device.label || `Camera ${idx + 1}`;
                 cameraSelect.appendChild(option);
+                if (/back|rear|environment/i.test(device.label)) {
+                    backCamIdx = idx;
+                }
             });
             if (availableDevices.length === 0) {
                 cameraSelect.innerHTML = '<option>No camera found</option>';
                 cameraSelect.disabled = true;
             } else {
                 cameraSelect.disabled = false;
+                // Select back camera if found
+                if (backCamIdx >= 0) {
+                    cameraSelect.selectedIndex = backCamIdx;
+                }
             }
         }
 
@@ -93,84 +224,171 @@
         // Also update when permissions change
         navigator.mediaDevices && navigator.mediaDevices.addEventListener && navigator.mediaDevices.addEventListener('devicechange', updateCameraList);
 
-        // Barcode scanning logic using Quagga
+        // Barcode scanning logic using native BarcodeDetector API
         const scanBtn = document.getElementById('scanBtn');
         const videoContainer = document.getElementById('videoContainer');
+        const videoElement = document.getElementById('videoElement');
         let scanning = false;
+        let localStream;
+        let barcodeDetector;
+        let audioContext; // For playing beep sound
 
-        function startQuagga() {
-            if (!window.Quagga) {
-                alert('Quagga library not loaded.');
-                return;
+        async function initializeBarcodeDetector() {
+            if (!('BarcodeDetector' in window)) {
+                alert('Barcode Detector API is not supported in this browser.');
+                return false;
             }
-            let selectedDeviceId = cameraSelect.value || null;
-            videoContainer.classList.remove('hidden');
-            scanBtn.textContent = 'Stop Scanning';
-            scanning = true;
-            Quagga.init({
-                inputStream: {
-                    type: 'LiveStream',
-                    target: videoContainer, // Use the container div, not a <video> element
-                    constraints: {
-                        deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
-                        facingMode: 'environment',
-                    },
-                    area: {
-                        top: "0%",
-                        right: "0%",
-                        left: "0%",
-                        bottom: "0%"
-                    },
-                },
-                decoder: {
-                    readers: [
-                        'code_128_reader',
-                        'ean_8_reader',
-                    ]
-                },
-                locate: true
-            }, function (err) {
-                if (err) {
-                    alert('Error starting camera: ' + err);
-                    stopQuagga();
-                    return;
-                }
-                Quagga.start();
-            });
-
-            Quagga.onDetected(onBarcodeDetected);
+            try {
+                const formats = await BarcodeDetector.getSupportedFormats();
+                // Only detect code_128 barcodes
+                barcodeDetector = new BarcodeDetector({ formats: ['code_128'] });
+                console.log('Supported barcode formats:', formats);
+                return true;
+            } catch (e) {
+                console.error('Error initializing BarcodeDetector:', e);
+                alert('Error initializing BarcodeDetector: ' + e.message);
+                return false;
+            }
         }
 
-        function stopQuagga() {
-            if (window.Quagga) {
-                Quagga.offDetected(onBarcodeDetected);
-                Quagga.stop();
+        // Function to play a beep sound
+        function playBeep() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (!audioContext) { // Still not available
+                console.warn("Web Audio API is not supported in this browser. Cannot play beep.");
+                return;
+            }
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.type = 'sine'; // Type of sound wave
+            oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // Frequency in Hz (A4 note)
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime); // Volume (0 to 1)
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.2); // Duration of the beep in seconds
+        }
+
+
+        async function startScanning() {
+            if (!barcodeDetector) {
+                const initialized = await initializeBarcodeDetector();
+                if (!initialized) {
+                    return;
+                }
+            }
+
+            let selectedDeviceId = cameraSelect.value || null;
+            const constraints = {
+                video: {
+                    deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+                    facingMode: 'environment'
+                }
+            };
+
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = localStream;
+                videoContainer.classList.remove('hidden');
+                videoContainer.classList.add('scanning');
+                // Show and animate scanning bar
+                scanBtn.textContent = 'Stop Scanning';
+                scanning = true;
+                scanFrame(); // Start scanning frames
+            } catch (err) {
+                alert('Error starting camera: ' + err);
+                stopScanning();
+            }
+        }
+
+        async function scanFrame() {
+            if (!scanning || !barcodeDetector || !videoElement.srcObject || videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
+                if (scanning) requestAnimationFrame(scanFrame);
+                return;
+            }
+            try {
+                const barcodes = await barcodeDetector.detect(videoElement);
+                // Only process code_128 barcodes
+                const code128 = barcodes.find(b => b.format === 'code_128');
+                if (code128) {
+                    onBarcodeDetected(code128);
+                }
+            } catch (e) {
+                console.error('Error detecting barcode:', e);
+            }
+            if (scanning) {
+                requestAnimationFrame(scanFrame);
+            }
+        }
+
+
+        function stopScanning() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
             }
             videoContainer.classList.add('hidden');
+            videoContainer.classList.remove('scanning');
+            // Hide scanning bar
+            videoElement.srcObject = null;
             scanBtn.textContent = 'Scan Barcode';
             scanning = false;
         }
 
-        function onBarcodeDetected(result) {
-            if (result && result.codeResult && result.codeResult.code) {
-                console.log(`[${stockMode === 'subtract' ? 'Subtract' : 'Add'}] Barcode:`, result.codeResult.code, result.codeResult);
-                // Visual feedback: green border for 2 seconds
+        function showBarcodeModal(value) {
+            const modal = document.getElementById('barcodeModal');
+            const questionDiv = document.getElementById('barcodeModalQuestion');
+            // Set question based on mode
+            let action = stockMode === 'add' ? 'einlagern' : 'entnehmen';
+            questionDiv.textContent = `Sind Sie sicher, dass Sie den Artikel ${value} ${action} möchten?`;
+            modal.style.display = 'flex';
+            modal.classList.remove('hidden');
+            // Store barcode for confirm
+            modal.dataset.barcode = value;
+        }
+        function hideBarcodeModal() {
+            const modal = document.getElementById('barcodeModal');
+            modal.style.display = 'none';
+            modal.classList.add('hidden');
+            modal.dataset.barcode = '';
+        }
+        document.getElementById('closeBarcodeModal').onclick = hideBarcodeModal;
+        document.getElementById('confirmBarcodeModal').onclick = function () {
+            const modal = document.getElementById('barcodeModal');
+            const barcode = modal.dataset.barcode;
+            let action = stockMode === 'add' ? 'einlagern' : 'entnehmen';
+            console.log(`Confirmed: Artikel ${barcode} ${action}`);
+            hideBarcodeModal();
+        };
+
+        function onBarcodeDetected(barcode) {
+            if (barcode && barcode.rawValue) {
+                console.log(`[${stockMode === 'subtract' ? 'Subtract' : 'Add'}] Barcode:`, barcode.rawValue, barcode);
+                playBeep();
                 const form = document.getElementById('formContainer');
                 form.classList.add('border-4', 'border-green-500');
+                showBarcodeModal(barcode.rawValue); // Show modal dialog
                 setTimeout(() => {
                     form.classList.remove('border-4', 'border-green-500');
                 }, 2000);
-                // stopQuagga(); // Uncomment to stop after first scan
+                stopScanning();
             }
         }
 
-        scanBtn.addEventListener('click', () => {
+        scanBtn.addEventListener('click', async () => { // Made async
             if (!scanning) {
-                startQuagga();
+                await startScanning(); // Made await
             } else {
-                stopQuagga();
+                stopScanning();
             }
         });
+
+        // Initialize when the script loads
+        initializeBarcodeDetector();
     </script>
 </body>
 
