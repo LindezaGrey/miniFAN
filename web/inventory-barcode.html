@@ -56,7 +56,6 @@
         h1 {
             font-size: 2rem;
             font-weight: 700;
-            margin-bottom: 0.5rem;
             letter-spacing: -1px;
         }
 
@@ -243,6 +242,12 @@
             background: #e3eaf2;
         }
 
+        #warehouseHeadline {
+            color: grey;
+            margin-bottom: 0;
+            text-align: center;
+        }
+
         @media (max-width: 600px) {
             #formContainer {
                 padding: 1.2rem 0.5rem 1.5rem 0.5rem;
@@ -259,7 +264,6 @@
     <div id="formContainer">
         <img src="./assets/albin-logo.jpg" alt="Logo" id="headerLogo">
         <h1 class="albin-blue">Konsi-Lager App</h1>
-        <h2 id="warehouseHeadline" class="albin-blue"></h2>
         <div id="videoContainer" class="hidden">
             <video id="videoElement" autoplay playsinline></video>
             <div class="scanning-line"></div>
@@ -276,6 +280,8 @@
             <select id="cameraSelect"></select>
         </div>
         <button id="scanBtn">Barcode scannen</button>
+        <p id="warehouseHeadline"></p>
+
         <div id="barcodeModal" class="hidden">
             <div class="modal-content">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
