@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 
 <head>
     <meta charset="UTF-8">
@@ -8,6 +8,7 @@
     <!-- Material Design Lite CDN -->
     <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.indigo-blue.min.css">
     <script defer src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+    <script src="./assets/BarcodeParser.js"></script>
     <style>
         :root {
             --albin-blue: #092644;
@@ -183,6 +184,16 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            /* Added for scrollable table */
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        #barcodeInfoTableContainer {
+            width: 100%;
+            margin-bottom: 1rem;
+            overflow-x: auto;
+            /* Allows horizontal scrolling for the table */
         }
 
         #barcodeModal svg {
@@ -256,8 +267,8 @@
         <div style="width:100%;margin-bottom:1.2rem;">
             <label for="modeSelect">Modus</label>
             <select id="modeSelect">
-                <option value="subtract">Warenentnahme</option>
-                <option value="add">Wareneinlagerung</option>
+                <option value="subtract">Entnahme</option>
+                <option value="add">Einlagerung</option>
             </select>
         </div>
         <div style="width:100%;margin-bottom:1.2rem;">
@@ -272,6 +283,20 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 <div id="barcodeModalQuestion"></div>
+                <div id="barcodeInfoTableContainer" style="width: 100%; margin-bottom: 1rem;">
+                    <table id="barcodeInfoTable" style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr>
+                                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">AI</th>
+                                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Title</th>
+                                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Contents</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Rows will be added here by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
                 <div style="display:flex;gap:1rem;justify-content:center;">
                     <button id="confirmBarcodeModal">Ja</button>
                     <button id="closeBarcodeModal">Abbrechen</button>
@@ -459,6 +484,29 @@
         function showBarcodeModal(value) {
             const modal = document.getElementById('barcodeModal');
             const questionDiv = document.getElementById('barcodeModalQuestion');
+            const tableBody = document.getElementById('barcodeInfoTable').getElementsByTagName('tbody')[0];
+            tableBody.innerHTML = ''; // Clear previous data
+
+            const parsedBarcode = parseBarcode(value);
+            if (parsedBarcode && parsedBarcode.parsedCodeItems) {
+                parsedBarcode.parsedCodeItems.forEach(item => {
+                    const row = tableBody.insertRow();
+                    const cellAi = row.insertCell();
+                    const cellTitle = row.insertCell();
+                    const cellContents = row.insertCell();
+
+                    cellAi.textContent = item.ai || '';
+                    cellTitle.textContent = item.dataTitle || '';
+                    cellContents.textContent = item.data || '';
+
+                    [cellAi, cellTitle, cellContents].forEach(cell => {
+                        cell.style.border = '1px solid #ddd';
+                        cell.style.padding = '8px';
+                        cell.style.textAlign = 'left';
+                    });
+                });
+            }
+
             // Set question based on mode
             let action = stockMode === 'add' ? 'einlagern' : 'entnehmen';
             questionDiv.textContent = `Sind Sie sicher, dass Sie den Artikel ${value} ${action} möchten?`;
@@ -466,6 +514,7 @@
             modal.classList.remove('hidden');
             // Store barcode for confirm
             modal.dataset.barcode = value;
+            modal.dataset.parsedBarcode = JSON.stringify(parsedBarcode);
         }
         function hideBarcodeModal() {
             const modal = document.getElementById('barcodeModal');
@@ -474,11 +523,23 @@
             modal.dataset.barcode = '';
         }
         document.getElementById('closeBarcodeModal').onclick = hideBarcodeModal;
-        document.getElementById('confirmBarcodeModal').onclick = function () {
+        document.getElementById('confirmBarcodeModal').onclick = async function () {
             const modal = document.getElementById('barcodeModal');
             const barcode = modal.dataset.barcode;
             let action = stockMode === 'add' ? 'einlagern' : 'entnehmen';
             console.log(`Confirmed: Artikel ${barcode} ${action}`);
+            console.log('Parsed Barcode:', JSON.parse(modal.dataset.parsedBarcode));
+            await fetch('https://n8n.docker.zieglercloud.de/webhook/konsi-app', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    action: stockMode,
+                    parsedBarcode: JSON.parse(modal.dataset.parsedBarcode),
+                    warehouse: warehouse || 'default' // Use query param or default
+                })
+            });
             hideBarcodeModal();
         };
 
